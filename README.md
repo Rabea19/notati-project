@@ -1,13 +1,10 @@
 # Notati
 
-A responsive notes dashboard with create, read, edit, delete, search, category filters, colors, and pinning. Built with vanilla JavaScript, Tailwind CSS, Node.js/Express, and local MongoDB.
+A private notes dashboard built with vanilla JavaScript, Tailwind, Express, and MongoDB. Users register with email, name, and password; sign in and out; change password; and manage only their own notes. Passwords are scrypt hashed. Sessions are random opaque tokens stored as SHA-256 hashes in MongoDB and sent in HttpOnly SameSite cookies. Auth mutations check request origin.
 
-## Requirements
+## Local setup
 
-- Node.js 20.19+ (or 22.12+)
-- MongoDB Community Server running locally on `127.0.0.1:27017`
-
-## Run
+Node.js 20.19+ and a running MongoDB server are required.
 
 ```bash
 npm install
@@ -15,23 +12,30 @@ cp .env.example .env
 npm run dev
 ```
 
-On Windows PowerShell, use `Copy-Item .env.example .env` instead of `cp`. Open **http://localhost:5173**. The API listens on port 3001. Start MongoDB first (on Windows, start its installed MongoDB service; on macOS/Linux, start `mongod` using your installation method). If you use a different port, edit `.env`.
+PowerShell: `Copy-Item .env.example .env`. Open http://localhost:5173. The Express API runs at http://localhost:3001 behind the Vite proxy. Build with `npm run build`, then run `npm start` for a local production style server.
 
-## Production build
+## Vercel deployment
+
+This repository uses Vite static hosting and Vercel `api/` functions. Keep the existing `MONGODB_URI` in Vercel pointing to a reachable MongoDB Atlas cluster. Vercel auto-deploys when the connected GitHub branch updates. Do not commit `.env` or connection strings.
+
+## Previous public notes
+
+Existing notes created before authentication have no `owner`. They are deliberately invisible to every account after deploying this version. To assign **all** ownerless notes to one existing account, register that account, back up the database, then run the following command on a trusted machine with `MONGODB_URI` configured:
 
 ```bash
-npm run build
-npm start
+node scripts/claim-legacy-notes.js YOUR_EMAIL --confirm
 ```
 
-Open **http://localhost:3001**. The same Node server serves the built frontend and API. Notes are stored in the `notati` database, `notes` collection. There is no login; intended for personal local use. Do not expose the server publicly without adding authentication.
+Do this only if all existing notes belong to that person. The script never changes notes already assigned to an owner. If old notes belong to several people, manually review and assign them; do not use this script.
 
 ## API
 
-- `GET /api/notes` — list notes, pinned first
-- `POST /api/notes` — create a note
-- `PATCH /api/notes/:id` — update a note or pin state
-- `DELETE /api/notes/:id` — delete a note
-- `GET /api/health` — database connection status
+- `POST /api/auth/register` — name, email, password (12–128 characters)
+- `POST /api/auth/login` — email, password
+- `GET /api/auth/me` — current user
+- `POST /api/auth/logout` — revoke current session
+- `POST /api/auth/password` — currentPassword, newPassword; revokes all sessions
+- `GET /api/notes`, `POST /api/notes` — list and create only the signed-in user's notes
+- `PATCH /api/notes/:id`, `DELETE /api/notes/:id` — update/delete only a note owned by the signed-in user
 
-Note fields: `title` (required, max 120), `content` (max 20,000), `category` (`Personal`, `Work`, `Ideas`, `Learning`), `color` (`lavender`, `peach`, `mint`, `sky`, `cream`), `pinned` (boolean).
+The API returns 401 when signed out and 404 for another user's note ID. The app does not yet include email verification or a password-reset-by-email service. Users who forget passwords require an admin recovery process; add a mail provider and reset flow before relying on this for production accounts.

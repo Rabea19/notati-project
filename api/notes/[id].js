@@ -1,46 +1,19 @@
 import mongoose from 'mongoose';
-import { connectDB } from '../../lib/db.js';
 import Note from '../../lib/note.js';
 import { payload } from '../../lib/payload.js';
-import { parseBody, sendError } from '../../lib/http.js';
-
-export default async function handler(req, res) {
-  const { id } = req.query;
-
-  if (!mongoose.isValidObjectId(id)) {
-    return res.status(400).json({ error: 'Invalid note ID.' });
-  }
-
+import { parseBody, sendError, allow } from '../../lib/http.js';
+import { requireUser, checkOrigin } from '../../lib/auth.js';
+export default async function handler(req,res) {
+  if (!allow(req,res,['PATCH','DELETE']) || !checkOrigin(req,res)) return;
+  if (!mongoose.isValidObjectId((req.params?.id || req.query.id))) return res.status(400).json({ error:'Invalid note ID.' });
   try {
-    await connectDB();
-
+    const active = await requireUser(req,res); if (!active) return;
+    const filter = { _id: (req.params?.id || req.query.id), owner: active.user._id };
     if (req.method === 'PATCH') {
-      const note = await Note.findByIdAndUpdate(
-        id,
-        payload(parseBody(req.body)),
-        { new: true, runValidators: true }
-      );
-
-      if (!note) {
-        return res.status(404).json({ error: 'Note not found.' });
-      }
-
-      return res.status(200).json(note);
+      const note = await Note.findOneAndUpdate(filter,payload(parseBody(req.body)),{ new:true,runValidators:true });
+      return note ? res.status(200).json(note) : res.status(404).json({ error:'Note not found.' });
     }
-
-    if (req.method === 'DELETE') {
-      const note = await Note.findByIdAndDelete(id);
-
-      if (!note) {
-        return res.status(404).json({ error: 'Note not found.' });
-      }
-
-      return res.status(204).end();
-    }
-
-    res.setHeader('Allow', 'PATCH, DELETE');
-    return res.status(405).json({ error: 'Method not allowed.' });
-  } catch (error) {
-    return sendError(res, error);
-  }
+    const note = await Note.findOneAndDelete(filter);
+    return note ? res.status(204).end() : res.status(404).json({ error:'Note not found.' });
+  } catch(error) { return sendError(res,error); }
 }
