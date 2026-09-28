@@ -1,25 +1,12 @@
-import { connectDB } from '../lib/db.js';
 import Note from '../lib/note.js';
 import { payload } from '../lib/payload.js';
-import { parseBody, sendError } from '../lib/http.js';
-
+import { parseBody, sendError, allow } from '../lib/http.js';
+import { requireUser, checkOrigin } from '../lib/auth.js';
 export default async function handler(req, res) {
+  if (!allow(req,res,['GET','POST']) || !checkOrigin(req,res)) return;
   try {
-    await connectDB();
-
-    if (req.method === 'GET') {
-      const notes = await Note.find().sort({ pinned: -1, updatedAt: -1 }).lean();
-      return res.status(200).json(notes);
-    }
-
-    if (req.method === 'POST') {
-      const note = await Note.create(payload(parseBody(req.body)));
-      return res.status(201).json(note);
-    }
-
-    res.setHeader('Allow', 'GET, POST');
-    return res.status(405).json({ error: 'Method not allowed.' });
-  } catch (error) {
-    return sendError(res, error);
-  }
+    const active = await requireUser(req,res); if (!active) return;
+    if (req.method === 'GET') return res.status(200).json(await Note.find({ owner: active.user._id }).sort({ pinned: -1, updatedAt: -1 }).lean());
+    return res.status(201).json(await Note.create({ ...payload(parseBody(req.body)), owner: active.user._id }));
+  } catch (error) { return sendError(res,error); }
 }
